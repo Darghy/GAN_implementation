@@ -6,8 +6,8 @@ from training_loop import load_models, get_noise
 def generate_and_visualize(num_images=16, filepath="gan_models.pth"):
     """Generate and visualize MNIST images using trained generator"""
     
-    # Load the trained models
-    generator, discriminator = load_models(filepath)
+    # Load the trained models (ignore total_epochs_trained for visualization)
+    generator, discriminator, _ = load_models(filepath)
     generator.eval()  # Set to evaluation mode
     
     # Generate noise

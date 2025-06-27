@@ -7,7 +7,7 @@ class Generator(nn.Module):
         super().__init__()
         self.model = nn.Sequential(
             nn.Linear(100, 256), # we will be sampling from 100-dimensional noise
-            nn.ReLU(),
+            nn.LeakyReLU(0.2),
             nn.Linear(256, 512),
             nn.BatchNorm1d(512),
             nn.ReLU(),

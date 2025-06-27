@@ -5,16 +5,17 @@ import os
 
 from models import Generator, Discriminator
 
-def save_models(generator, discriminator, filepath="gan_models.pth"):
-    """Save both generator and discriminator models"""
+def save_models(generator, discriminator, total_epochs_trained, filepath="gan_models.pth"):
+    """Save both generator and discriminator models along with training progress"""
     torch.save({
         'generator_state_dict': generator.state_dict(),
         'discriminator_state_dict': discriminator.state_dict(),
+        'total_epochs_trained': total_epochs_trained,
     }, filepath)
-    print(f"Models saved to {filepath}")
+    print(f"Models saved to {filepath} (trained for {total_epochs_trained} epochs total)")
 
 def load_models(filepath="gan_models.pth"):
-    """Load both generator and discriminator models"""
+    """Load both generator and discriminator models and return training progress"""
     checkpoint = torch.load(filepath)
     
     generator = Generator()
@@ -23,8 +24,11 @@ def load_models(filepath="gan_models.pth"):
     generator.load_state_dict(checkpoint['generator_state_dict'])
     discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
     
-    print(f"Models loaded from {filepath}")
-    return generator, discriminator
+    # Get total epochs trained (default to 0 for old checkpoints)
+    total_epochs_trained = checkpoint.get('total_epochs_trained', 0)
+    
+    print(f"Models loaded from {filepath} (previously trained for {total_epochs_trained} epochs)")
+    return generator, discriminator, total_epochs_trained
 
 # models
 generator = Generator()
@@ -48,12 +52,15 @@ def get_data(m):
     samples = torch.stack([train_dataset[i][0] for i in indices])
     return samples.view(m, -1)
 
-def train_model(generator, discriminator, disc_opt, gen_opt, epochs=50, k=1, m=128):
+def train_model(generator, discriminator, disc_opt, gen_opt, epochs=50, start_epoch=0, k=1, m=128):
     '''
     k: number of discriminator updates per generator update, k = 1 in the original paper
     m: batch size, m = 128 in the original paper, o3 recommends 256 or "maximum that fits in VRAM"
+    start_epoch: starting epoch number for continuous training
     '''
     for epoch in range(epochs):
+        current_epoch = start_epoch + epoch + 1  # Actual epoch number for display/saving
+        
         for _ in range(k):
             # 1. sample m noise samples
             noise = get_noise(m)
@@ -68,12 +75,16 @@ def train_model(generator, discriminator, disc_opt, gen_opt, epochs=50, k=1, m=1
             fake_preds = discriminator(fake_data.detach())  # detach to avoid generator gradients
             
             # calculate losses
-            real_loss = loss(real_preds, torch.ones_like(real_preds))  # target = 1 for real
-            fake_loss = loss(fake_preds, torch.zeros_like(fake_preds))  # target = 0 for fake
-            total_disc_loss = real_loss + fake_loss
+            # label smoothing: real=0.9, fake=0.1
+            real_targets = torch.full_like(real_preds, 0.9)
+            fake_targets = torch.full_like(fake_preds, 0.1)
+
+            real_loss = loss(real_preds, real_targets)
+            fake_loss = loss(fake_preds, fake_targets)
             
             # update discriminator
             disc_opt.zero_grad()
+            total_disc_loss = real_loss + fake_loss
             total_disc_loss.backward()
             disc_opt.step()    
         # 4. sample m noise samples
@@ -85,8 +96,8 @@ def train_model(generator, discriminator, disc_opt, gen_opt, epochs=50, k=1, m=1
         # get discriminator predictions on fake data
         fake_preds = discriminator(fake_data)
         
-        # generator loss: we want discriminator to think fake data is real (target = 1)
-        gen_loss = loss(fake_preds, torch.ones_like(fake_preds))
+        gen_targets = torch.full_like(fake_preds, 0.9)  # generator tries to hit smoothed real label
+        gen_loss = loss(fake_preds, gen_targets)
         
         # update generator
         gen_opt.zero_grad()
@@ -98,18 +109,19 @@ def train_model(generator, discriminator, disc_opt, gen_opt, epochs=50, k=1, m=1
             real_accuracy = (real_preds > 0.5).float().mean()
             fake_accuracy = (fake_preds < 0.5).float().mean()  # correct when < 0.5
             
-        print(f"Epoch {epoch+1}/{epochs}")
+        print(f"Epoch {current_epoch}/{start_epoch + epochs}")
         print(f"  Disc Loss: {total_disc_loss:.4f} | Gen Loss: {gen_loss:.4f}")
         print(f"  Disc Acc - Real: {real_accuracy:.2f} | Fake: {fake_accuracy:.2f}")
         print(f"  Balance: {(real_accuracy + fake_accuracy)/2:.2f}")
         print("-" * 50)
         
         # Save sample images every 250 epochs for progress tracking
-        if (epoch + 1) % 250 == 0:
-            save_sample_images(generator, epoch + 1)
+        if current_epoch % 250 == 0:
+            save_sample_images(generator, current_epoch)
 
-    # Save models after training
-    save_models(generator, discriminator)
+    # Save models after training with total epochs trained
+    total_epochs_after_training = start_epoch + epochs
+    save_models(generator, discriminator, total_epochs_after_training)
     print("Training complete!")
 
 def save_sample_images(generator, epoch, num_samples=16):
@@ -142,13 +154,14 @@ def save_sample_images(generator, epoch, num_samples=16):
 if __name__ == "__main__":
     # Try to load existing models, otherwise start fresh
     try:
-        generator, discriminator = load_models()
+        generator, discriminator, total_epochs_trained = load_models()
         print("Continuing training from saved models...")
     except FileNotFoundError:
         print("No saved models found, starting fresh training...")
+        total_epochs_trained = 0
     
     # Create optimizers AFTER loading models (critical!)
-    disc_opt = torch.optim.AdamW(discriminator.parameters(), lr=2e-4, betas=(0.5, 0.999))
-    gen_opt = torch.optim.AdamW(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+    disc_opt = torch.optim.AdamW(discriminator.parameters(), lr=1e-4, betas=(0.3, 0.999))
+    gen_opt = torch.optim.AdamW(generator.parameters(), lr=1e-4, betas=(0.3, 0.999))
     
-    train_model(generator, discriminator, disc_opt, gen_opt, epochs=5000)
+    train_model(generator, discriminator, disc_opt, gen_opt, epochs=10_000, start_epoch=total_epochs_trained)
