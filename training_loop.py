@@ -1,6 +1,7 @@
 import torch
 import torchvision
 import matplotlib.pyplot as plt
+import os
 
 from models import Generator, Discriminator
 
@@ -29,10 +30,6 @@ def load_models(filepath="gan_models.pth"):
 generator = Generator()
 discriminator = Discriminator()
 
-# optimizers, loss functions
-disc_opt = torch.optim.AdamW(discriminator.parameters(), lr = 2e-4, betas=(0.5, 0.999)) # claude says 2e-4 is good
-gen_opt = torch.optim.AdamW(generator.parameters(), lr = 2e-4, betas=(0.5, 0.999))
-
 loss = torch.nn.BCELoss()
 
 def get_noise(m):
@@ -51,7 +48,7 @@ def get_data(m):
     samples = torch.stack([train_dataset[i][0] for i in indices])
     return samples.view(m, -1)
 
-def train_model(generator, discriminator, epochs=50, k=1, m=128):
+def train_model(generator, discriminator, disc_opt, gen_opt, epochs=50, k=1, m=128):
     '''
     k: number of discriminator updates per generator update, k = 1 in the original paper
     m: batch size, m = 128 in the original paper, o3 recommends 256 or "maximum that fits in VRAM"
@@ -106,10 +103,52 @@ def train_model(generator, discriminator, epochs=50, k=1, m=128):
         print(f"  Disc Acc - Real: {real_accuracy:.2f} | Fake: {fake_accuracy:.2f}")
         print(f"  Balance: {(real_accuracy + fake_accuracy)/2:.2f}")
         print("-" * 50)
+        
+        # Save sample images every 250 epochs for progress tracking
+        if (epoch + 1) % 250 == 0:
+            save_sample_images(generator, epoch + 1)
 
     # Save models after training
     save_models(generator, discriminator)
     print("Training complete!")
 
+def save_sample_images(generator, epoch, num_samples=16):
+    """Save sample images for progress tracking"""
+    # Create progress_images directory if it doesn't exist
+    os.makedirs('progress_images', exist_ok=True)
+    
+    generator.eval()
+    with torch.no_grad():
+        noise = get_noise(num_samples)
+        fake_images = generator(noise)
+        fake_images = fake_images.cpu().numpy().reshape(num_samples, 28, 28)
+        fake_images = (fake_images + 1) / 2  # normalize to [0,1]
+        
+        # Create grid
+        fig, axes = plt.subplots(4, 4, figsize=(8, 8))
+        fig.suptitle(f'Generated Images - Epoch {epoch}', fontsize=14)
+        
+        for i, ax in enumerate(axes.flat):
+            ax.imshow(fake_images[i], cmap='gray')
+            ax.axis('off')
+        
+        plt.tight_layout()
+        plt.savefig(f'progress_images/progress_epoch_{epoch:04d}.png', dpi=100, bbox_inches='tight')
+        plt.close()  # Don't display, just save
+        
+    generator.train()  # Back to training mode
+    print(f"  → Saved progress image: progress_images/progress_epoch_{epoch:04d}.png")
+
 if __name__ == "__main__":
-    train_model(generator, discriminator, epochs=500)
+    # Try to load existing models, otherwise start fresh
+    try:
+        generator, discriminator = load_models()
+        print("Continuing training from saved models...")
+    except FileNotFoundError:
+        print("No saved models found, starting fresh training...")
+    
+    # Create optimizers AFTER loading models (critical!)
+    disc_opt = torch.optim.AdamW(discriminator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+    gen_opt = torch.optim.AdamW(generator.parameters(), lr=2e-4, betas=(0.5, 0.999))
+    
+    train_model(generator, discriminator, disc_opt, gen_opt, epochs=5000)
