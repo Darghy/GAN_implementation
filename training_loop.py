@@ -1,7 +1,29 @@
 import torch
 import torchvision
+import matplotlib.pyplot as plt
 
 from models import Generator, Discriminator
+
+def save_models(generator, discriminator, filepath="gan_models.pth"):
+    """Save both generator and discriminator models"""
+    torch.save({
+        'generator_state_dict': generator.state_dict(),
+        'discriminator_state_dict': discriminator.state_dict(),
+    }, filepath)
+    print(f"Models saved to {filepath}")
+
+def load_models(filepath="gan_models.pth"):
+    """Load both generator and discriminator models"""
+    checkpoint = torch.load(filepath)
+    
+    generator = Generator()
+    discriminator = Discriminator()
+    
+    generator.load_state_dict(checkpoint['generator_state_dict'])
+    discriminator.load_state_dict(checkpoint['discriminator_state_dict'])
+    
+    print(f"Models loaded from {filepath}")
+    return generator, discriminator
 
 # models
 generator = Generator()
@@ -73,3 +95,21 @@ def train_model(generator, discriminator, epochs=50, k=1, m=128):
         gen_opt.zero_grad()
         gen_loss.backward()
         gen_opt.step()
+
+        # calculate discriminator accuracy for monitoring
+        with torch.no_grad():
+            real_accuracy = (real_preds > 0.5).float().mean()
+            fake_accuracy = (fake_preds < 0.5).float().mean()  # correct when < 0.5
+            
+        print(f"Epoch {epoch+1}/{epochs}")
+        print(f"  Disc Loss: {total_disc_loss:.4f} | Gen Loss: {gen_loss:.4f}")
+        print(f"  Disc Acc - Real: {real_accuracy:.2f} | Fake: {fake_accuracy:.2f}")
+        print(f"  Balance: {(real_accuracy + fake_accuracy)/2:.2f}")
+        print("-" * 50)
+
+    # Save models after training
+    save_models(generator, discriminator)
+    print("Training complete!")
+
+if __name__ == "__main__":
+    train_model(generator, discriminator, epochs=500)
