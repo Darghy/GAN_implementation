@@ -2,7 +2,6 @@ data/
 __pycache__/
 *.pyc
 *.pth
-*.png
 progress_images/
 old_progress_images/
 *.pdf
