@@ -5,3 +5,4 @@ __pycache__/
 *.png
 progress_images/
 old_progress_images/
+*.pdf

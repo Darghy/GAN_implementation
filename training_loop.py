@@ -164,4 +164,4 @@ if __name__ == "__main__":
     disc_opt = torch.optim.AdamW(discriminator.parameters(), lr=1e-4, betas=(0.3, 0.999))
     gen_opt = torch.optim.AdamW(generator.parameters(), lr=1e-4, betas=(0.3, 0.999))
     
-    train_model(generator, discriminator, disc_opt, gen_opt, epochs=10_000, start_epoch=total_epochs_trained)
+    train_model(generator, discriminator, disc_opt, gen_opt, epochs=15_000, start_epoch=total_epochs_trained)
